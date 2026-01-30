@@ -29,3 +29,139 @@ A lightweight ICQ server implementation using the OSCAR protocol, designed to wo
    ```bash
    git clone https://github.com/yourusername/icq-server.git
    cd icq-server
+
+   
+
+    Initialize the database with test users
+
+    Bash
+
+    python database.py init
+
+    Start the server
+
+    Bash
+
+    python server.py
+
+## Configuration
+
+Edit config.py to customize server settings:
+
+Python
+
+HOST = '0.0.0.0'
+AUTH_PORT = 5190
+BOS_PORT = 5191
+BOS_HOST = '127.0.0.1'  # Your server's public IP for network access
+
+📱 Client Configuration
+QIP 2005
+
+    Go to Server/proxy on the login screen
+    Set Server: 127.0.0.1 (or your server IP)
+    Set Port: 5190
+    Enter your UIN and password
+
+🗄️ Database Management
+
+Bash
+
+# Create test users (111111, 222222, 333333 with password: password)
+python database.py init
+
+# Add a new user
+python database.py add <uin> <password> [nickname]
+
+# List all users
+python database.py list
+
+# Show user details
+python database.py info <uin>
+
+# Change password
+python database.py passwd <uin> <new_password>
+
+# Delete user
+python database.py delete <uin>
+
+# Add contact
+python database.py addcontact <owner_uin> <contact_uin>
+
+# Show statistics
+python database.py stats
+
+## 📁 Project Structure
+
+icq-server/
+├── config.py       # Server configuration
+├── oscar.py        # OSCAR protocol (FLAP, SNAC, TLV)
+├── database.py     # SQLite database and user management
+├── handlers.py     # SNAC packet handlers
+├── server.py       # Main server implementation
+├── debug.py        # Packet logger and debugging tools
+├── icq_server.db   # SQLite database (auto-created)
+└── packets.log     # Packet log file
+
+## 🔧 Protocol Support
+Implemented SNAC Families
+Family	Name	Description
+0x0001	GENERIC	Service controls, rate limits, status
+0x0002	LOCATION	User info and profiles
+0x0003	BUDDY	Buddy list, online/offline notifications
+0x0004	ICBM	Messages and typing notifications
+0x0009	PRIVACY	Privacy settings
+0x0013	SSI	Server-side contact list
+0x0015	ICQ_EXT	ICQ extensions (search, user info)
+0x0017	AUTH	Authentication
+Status Codes
+Code	Status
+0x0000	Online
+0x0001	Away
+0x0002	Do Not Disturb
+0x0004	Not Available
+0x0010	Occupied
+0x0020	Free for Chat
+0x0100	Invisible
+
+## 🐛 Debugging
+
+Packet logging is enabled by default. View real-time packet flow in console:
+
+text
+
+======================================================================
+[>>> IN] #42 14:32:15.234 from 127.0.0.1:54321 UIN:111111
+  FLAP Channel: 0x02 (SNAC_DATA) | Size: 48 bytes
+  SNAC: ICBM (0x0004/0x0006) ReqID=0x00000017
+
+Configure in debug.py:
+
+Python
+
+packet_logger = PacketLogger(
+    enabled=True,
+    show_hex=True,
+    log_to_file=True,
+)
+
+## 🧪 Testing
+    
+    Start the server:
+
+    python server.py
+
+    Connect with two clients:
+        Client 1: UIN 111111, Password password
+        Client 2: UIN 222222, Password password
+
+    Test messaging between clients
+
+
+## License
+
+This project is licensed under GNU GPL v3.0 License - see the LICENSE file for details.
+
+## ⚠️ Disclaimer
+
+This project is for educational and nostalgic purposes only. ICQ is a trademark of VK. This project is not affiliated with or endorsed by VK or the original ICQ developers.
