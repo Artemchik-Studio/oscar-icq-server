@@ -105,25 +105,19 @@ icq-server/
 └── packets.log     # Packet log file
 ```
 ## 🔧 Protocol Support
-Implemented SNAC Families
-Family	Name	Description
-0x0001	GENERIC	Service controls, rate limits, status
-0x0002	LOCATION	User info and profiles
-0x0003	BUDDY	Buddy list, online/offline notifications
-0x0004	ICBM	Messages and typing notifications
-0x0009	PRIVACY	Privacy settings
-0x0013	SSI	Server-side contact list
-0x0015	ICQ_EXT	ICQ extensions (search, user info)
-0x0017	AUTH	Authentication
-Status Codes
-Code	Status
-0x0000	Online
-0x0001	Away
-0x0002	Do Not Disturb
-0x0004	Not Available
-0x0010	Occupied
-0x0020	Free for Chat
-0x0100	Invisible
+# Implemented SNAC Commands
+
+## Overview
+
+| Family | Name | Client→Server | Server→Client |
+|--------|------|:-------------:|:-------------:|
+| 0x0001 | GENERIC | 8 | 5 |
+| 0x0002 | LOCATION | 3 | 2 |
+| 0x0003 | BUDDY | 3 | 3 |
+| 0x0004 | ICBM | 4 | 4 |
+| 0x0009 | PRIVACY | 3 | 1 |
+| 0x0013 | SSI | 12 | 3 |
+| 0x0015 | ICQ_EXT | 1 | 1 |
 
 ## 🐛 Debugging
 
