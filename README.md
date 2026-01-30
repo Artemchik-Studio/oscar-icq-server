@@ -48,24 +48,25 @@ A lightweight ICQ server implementation using the OSCAR protocol, designed to wo
 
 Edit config.py to customize server settings:
 
-Python
+```Python
 
 HOST = '0.0.0.0'
 AUTH_PORT = 5190
 BOS_PORT = 5191
 BOS_HOST = '127.0.0.1'  # Your server's public IP for network access
+```
 
 📱 Client Configuration
-QIP 2005
+```QIP 2005
 
     Go to Server/proxy on the login screen
     Set Server: 127.0.0.1 (or your server IP)
     Set Port: 5190
     Enter your UIN and password
-
+```
 🗄️ Database Management
 
-Bash
+```Bash
 
 # Create test users (111111, 222222, 333333 with password: password)
 python database.py init
@@ -90,9 +91,9 @@ python database.py addcontact <owner_uin> <contact_uin>
 
 # Show statistics
 python database.py stats
-
+```
 ## 📁 Project Structure
-
+```
 icq-server/
 ├── config.py       # Server configuration
 ├── oscar.py        # OSCAR protocol (FLAP, SNAC, TLV)
@@ -102,7 +103,7 @@ icq-server/
 ├── debug.py        # Packet logger and debugging tools
 ├── icq_server.db   # SQLite database (auto-created)
 └── packets.log     # Packet log file
-
+```
 ## 🔧 Protocol Support
 Implemented SNAC Families
 Family	Name	Description
@@ -128,7 +129,7 @@ Code	Status
 
 Packet logging is enabled by default. View real-time packet flow in console:
 
-text
+```text
 
 ======================================================================
 [>>> IN] #42 14:32:15.234 from 127.0.0.1:54321 UIN:111111
@@ -144,11 +145,11 @@ packet_logger = PacketLogger(
     show_hex=True,
     log_to_file=True,
 )
-
+```
 ## 🧪 Testing
     
     Start the server:
-
+```
     python server.py
 
     Connect with two clients:
@@ -156,7 +157,7 @@ packet_logger = PacketLogger(
         Client 2: UIN 222222, Password password
 
     Test messaging between clients
-
+```
 
 ## License
 
