@@ -3,7 +3,7 @@
 A lightweight ICQ server implementation using the OSCAR protocol, designed to work with classic ICQ clients like QIP 2005.
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
-![License](https://img.shields.io/badge/build-passing-brightgreen?style=for-the-badge)
+![License](https://img.shields.io/badge/License-GNU_GPL_v3.0-blue)
 ![Protocol](https://img.shields.io/badge/Protocol-OSCAR-orange.svg)
 
 ## ✨ Features
