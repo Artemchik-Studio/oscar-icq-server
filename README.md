@@ -56,7 +56,7 @@ BOS_PORT = 5191
 BOS_HOST = '127.0.0.1'  # Your server's public IP for network access
 ```
 
-📱 Client Configuration
+ Client Configuration
 ```QIP 2005
 
     Go to Server/proxy on the login screen
@@ -64,7 +64,7 @@ BOS_HOST = '127.0.0.1'  # Your server's public IP for network access
     Set Port: 5190
     Enter your UIN and password
 ```
-🗄️ Database Management
+Database Management
 
 ```Bash
 
@@ -104,7 +104,7 @@ icq-server/
 ├── icq_server.db   # SQLite database (auto-created)
 └── packets.log     # Packet log file
 ```
-## 🔧 Protocol Support
+## Protocol Support
 # Implemented SNAC Commands
 
 ## Overview
@@ -140,7 +140,7 @@ packet_logger = PacketLogger(
     log_to_file=True,
 )
 ```
-## 🧪 Testing
+## Testing
     
     Start the server:
 ```
@@ -160,3 +160,5 @@ This project is licensed under GNU GPL v3.0 License - see the LICENSE file for d
 ## ⚠️ Disclaimer
 
 This project is for educational and nostalgic purposes only. ICQ is a trademark of VK. This project is not affiliated with or endorsed by VK or the original ICQ developers.
+
+<p align="center"> Made with ❤️ for the ICQ nostalgia community </p> 
