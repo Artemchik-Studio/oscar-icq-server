@@ -6,7 +6,7 @@ A lightweight ICQ server implementation using the OSCAR protocol, designed to wo
 ![License](https://img.shields.io/badge/License-GNU_GPL_v3.0-blue)
 ![Protocol](https://img.shields.io/badge/Protocol-OSCAR-orange.svg)
 
-## ✨ Features
+## Features
 
 - **Authentication** - Secure login with password verification
 - **Messaging** - Real-time message delivery between users
@@ -95,7 +95,7 @@ python database.py addcontact <owner_uin> <contact_uin>
 # Show statistics
 python database.py stats
 ```
-## 📁 Project Structure
+## Project Structure
 ```
 icq-server/
 ├── config.py       # Server configuration
@@ -122,7 +122,7 @@ icq-server/
 | 0x0013 | SSI | 12 | 3 |
 | 0x0015 | ICQ_EXT | 1 | 1 |
 
-## 🐛 Debugging
+## Debugging
 
 Packet logging is enabled by default. View real-time packet flow in console:
 
@@ -160,7 +160,7 @@ packet_logger = PacketLogger(
 
 This project is licensed under GNU GPL v3.0 License - see the LICENSE file for details.
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This project is for educational and nostalgic purposes only. ICQ is a trademark of VK. This project is not affiliated with or endorsed by VK or the original ICQ developers.
 
