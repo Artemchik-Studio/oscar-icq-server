@@ -27,7 +27,7 @@ A lightweight ICQ server implementation using the OSCAR protocol, designed to wo
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/icq-server.git
+   git clone https://github.com/Artemchik-Studio/oscar-icq-server.git
    cd icq-server
 
    
