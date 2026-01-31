@@ -1,5 +1,3 @@
-# server.py - Полная версия с проверкой авторизации
-
 import asyncio
 import struct
 import time
@@ -14,42 +12,60 @@ from debug import packet_logger, log_incoming, log_outgoing
 import config
 
 
-# Коды ошибок авторизации
+class ICQStatus:
+    ONLINE = 0x0000
+    AWAY = 0x0001
+    DND = 0x0002
+    NA = 0x0004
+    BUSY = 0x0010
+    FREE_FOR_CHAT = 0x0020
+    INVISIBLE = 0x0100
+    
+    NAMES = {
+        0x0000: "Online",
+        0x0001: "Away",
+        0x0002: "Do Not Disturb",
+        0x0004: "Not Available",
+        0x0010: "Occupied",
+        0x0020: "Free for Chat",
+        0x0100: "Invisible",
+    }
+
+
 class AuthError:
     INVALID_UIN = 0x0001
-    SERVICE_DOWN = 0x0002
-    OTHER_ERROR = 0x0003
     INVALID_PASSWORD = 0x0004
-    MISMATCH_PASSWORD = 0x0005
-    BAD_INPUT = 0x0006
-    NOT_REGISTERED = 0x0007
-    DELETED_UIN = 0x0008
-    EXPIRED = 0x0009
-    NO_ACCESS = 0x000A
-    SUSPENDED = 0x0012
-    RATE_LIMITED = 0x0018
-    OLD_VERSION = 0x001B
 
 
 @dataclass
 class ClientConnection:
-    """Представляет подключение клиента"""
     reader: asyncio.StreamReader
     writer: asyncio.StreamWriter
     server: 'ICQServer'
     uin: Optional[str] = None
     user: Optional[User] = None
     sequence: int = 0
-    auth_key: bytes = field(default_factory=bytes)
-    pending_uin: str = ""
-    handler: Optional['SNACHandler'] = None
+    handler: Optional[SNACHandler] = None
     is_bos: bool = False
     addr: str = ""
     
+    # Status
+    status_flags: int = 0x0000
+    status: int = ICQStatus.ONLINE
+    
+    # X-Status (extended status) - TLV 0x1D data
+    x_status_data: bytes = field(default_factory=bytes)
+    
+    # Capabilities - TLV 0x0D data
+    capabilities: bytes = field(default_factory=bytes)
+    
+    # DC Info - TLV 0x0C data
+    dc_info: bytes = field(default_factory=bytes)
+    
     def __post_init__(self):
         self.handler = SNACHandler(self)
-        addr_info = self.writer.get_extra_info('peername')
-        self.addr = f"{addr_info[0]}:{addr_info[1]}" if addr_info else "unknown"
+        info = self.writer.get_extra_info('peername')
+        self.addr = f"{info[0]}:{info[1]}" if info else "?"
     
     def next_sequence(self) -> int:
         self.sequence = (self.sequence + 1) % 0x10000
@@ -57,9 +73,12 @@ class ClientConnection:
     
     async def send_flap(self, channel: int, data: bytes):
         flap = FLAP(channel, self.next_sequence(), data)
-        raw_data = flap.pack()
-        log_outgoing(raw_data, self.addr, self.uin) # type: ignore
-        self.writer.write(raw_data)
+        raw = flap.pack()
+        try:
+            log_outgoing(raw, self.addr, self.uin)
+        except:
+            pass
+        self.writer.write(raw)
         await self.writer.drain()
     
     async def send_snac(self, snac: SNAC):
@@ -67,296 +86,287 @@ class ClientConnection:
 
 
 class ICQServer:
-    """Главный сервер ICQ"""
-    
     ROAST_KEY = bytes([
         0xF3, 0x26, 0x81, 0xC4, 0x39, 0x86, 0xDB, 0x92,
         0x71, 0xA3, 0xB9, 0xE6, 0x53, 0x7A, 0x95, 0x7C
     ])
     
     def __init__(self):
-        self.auth_connections: Dict[str, ClientConnection] = {}
         self.bos_connections: Dict[str, ClientConnection] = {}
         self.pending_cookies: Dict[bytes, str] = {}
     
-    def decode_roasted_password(self, roasted: bytes) -> str:
-        """Расшифровывает XOR-закодированный пароль"""
-        password = bytes(
-            roasted[i] ^ self.ROAST_KEY[i % len(self.ROAST_KEY)]
-            for i in range(len(roasted))
-        )
-        return password.decode('utf-8', errors='replace').rstrip('\x00')
+    def decode_password(self, roasted: bytes) -> str:
+        pw = bytes(roasted[i] ^ self.ROAST_KEY[i % 16] for i in range(len(roasted)))
+        return pw.decode('utf-8', errors='replace').rstrip('\x00')
     
-    # ==================== Обработчики подключений ====================
-    
-    async def handle_auth_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    async def handle_auth_client(self, reader, writer):
         addr = writer.get_extra_info('peername')
-        print(f"\n[AUTH] Новое подключение: {addr}")
+        print(f"\n[AUTH] Connection: {addr}")
         
         conn = ClientConnection(reader, writer, self, is_bos=False)
         
         try:
             await conn.send_flap(FLAPChannel.NEW_CONNECTION, b'\x00\x00\x00\x01')
-            await self.process_client(conn)
-        except ConnectionResetError:
-            print(f"[AUTH] Connection reset: {addr}")
+            await self._process(conn)
         except Exception as e:
-            print(f"[AUTH] Ошибка: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"[AUTH] Error: {e}")
         finally:
             writer.close()
             try:
                 await writer.wait_closed()
             except:
                 pass
-            print(f"[AUTH] Отключение: {addr}")
     
-    async def handle_bos_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    async def handle_bos_client(self, reader, writer):
         addr = writer.get_extra_info('peername')
-        print(f"\n[BOS] Новое подключение: {addr}")
+        print(f"\n[BOS] Connection: {addr}")
         
         conn = ClientConnection(reader, writer, self, is_bos=True)
         
         try:
             await conn.send_flap(FLAPChannel.NEW_CONNECTION, b'\x00\x00\x00\x01')
-            await self.process_client(conn)
-        except ConnectionResetError:
-            print(f"[BOS] Connection reset: {addr}")
+            await self._process(conn)
         except Exception as e:
-            print(f"[BOS] Ошибка: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"[BOS] Error: {e}")
         finally:
             if conn.uin:
                 self.bos_connections.pop(conn.uin, None)
-                await self.broadcast_status(conn.uin, offline=True)
+                try:
+                    await self.broadcast_status(conn.uin, offline=True)
+                except:
+                    pass
             writer.close()
             try:
                 await writer.wait_closed()
             except:
                 pass
-            print(f"[BOS] 🔌 Отключение: {addr}")
+            print(f"[BOS] Disconnected: {addr}")
     
-    async def process_client(self, conn: ClientConnection):
-        buffer = b''
-        
+    async def _process(self, conn: ClientConnection):
+        buf = b''
         while True:
             try:
                 data = await conn.reader.read(4096)
                 if not data:
                     break
                 
-                buffer += data
+                buf += data
                 
                 while True:
-                    size = FLAP.total_size(buffer)
-                    if size == 0 or len(buffer) < size:
+                    size = FLAP.total_size(buf)
+                    if size == 0 or len(buf) < size:
                         break
                     
-                    raw_packet = buffer[:size]
-                    buffer = buffer[size:]
+                    raw = buf[:size]
+                    buf = buf[size:]
                     
-                    log_incoming(raw_packet, conn.addr, conn.uin) # type: ignore
+                    try:
+                        log_incoming(raw, conn.addr, conn.uin)
+                    except:
+                        pass
                     
-                    flap = FLAP.parse(raw_packet)
+                    flap = FLAP.parse(raw)
                     if flap:
-                        await self.handle_flap(conn, flap)
+                        await self._handle_flap(conn, flap)
             except ConnectionResetError:
                 break
             except Exception as e:
-                print(f"[!] Error processing client: {e}")
+                print(f"[!] Error: {e}")
                 break
     
-    async def handle_flap(self, conn: ClientConnection, flap: FLAP):
+    async def _handle_flap(self, conn: ClientConnection, flap: FLAP):
         if flap.channel == FLAPChannel.NEW_CONNECTION:
             if len(flap.data) < 4:
                 return
             
-            protocol_version = struct.unpack('>I', flap.data[:4])[0]
             tlvs = TLV.parse_all(flap.data[4:])
             
             if 0x06 in tlvs:
-                # Подключение к BOS с cookie
                 cookie = tlvs[0x06]
                 if cookie in self.pending_cookies:
                     uin = self.pending_cookies.pop(cookie)
                     conn.uin = uin
                     conn.user = db.get_user(uin)
                     self.bos_connections[uin] = conn
-                    print(f"[BOS] Авторизован по cookie: UIN={uin}")
-                    
-                    await self.send_host_online(conn)
-                    await self.broadcast_status(uin, offline=False)
-                else:
-                    print(f"[BOS] Неизвестный cookie!")
-                    await self.send_auth_error(conn, AuthError.OTHER_ERROR, "")
+                    print(f"[BOS] Authenticated: {uin}")
+                    await self._send_host_online(conn)
             
             elif 0x01 in tlvs:
-                # OLD-STYLE авторизация
-                await self.handle_old_style_login(conn, tlvs)
+                await self._handle_login(conn, tlvs)
         
         elif flap.channel == FLAPChannel.SNAC_DATA:
             snac = SNAC.parse(flap.data)
             if snac:
-                responses = conn.handler.handle(snac) # type: ignore
-                for response in responses:
-                    await conn.send_snac(response)
+                for resp in conn.handler.handle(snac):
+                    await conn.send_snac(resp)
         
-        elif flap.channel == FLAPChannel.DISCONNECT:
-            print(f"[*] Клиент запросил отключение")
-        
-        elif flap.channel == 0x05:
+        elif flap.channel == FLAPChannel.KEEPALIVE:
             pass
     
-    # ==================== Авторизация ====================
-    
-    async def handle_old_style_login(self, conn: ClientConnection, tlvs: Dict[int, bytes]):
-        """Обработка OLD-STYLE авторизации с проверкой в БД"""
-        
-        # TLV 0x01 - UIN
+    async def _handle_login(self, conn: ClientConnection, tlvs):
         uin = tlvs.get(0x01, b'').decode('utf-8', errors='replace')
+        roasted = tlvs.get(0x02, b'')
+        password = self.decode_password(roasted) if roasted else ""
         
-        # TLV 0x02 - Roasted password
-        roasted_password = tlvs.get(0x02, b'')
-        password = self.decode_roasted_password(roasted_password) if roasted_password else ""
+        print(f"[AUTH] Login: {uin}")
         
-        # TLV 0x03 - Client name
-        client_name = tlvs.get(0x03, b'').decode('utf-8', errors='replace')
-        
-        print(f"[AUTH] Login attempt:")
-        print(f"       UIN: {uin}")
-        print(f"       Password: {'*' * len(password)}")
-        print(f"       Client: {client_name}")
-        
-        # ========== ПРОВЕРКА В БАЗЕ ДАННЫХ ==========
-        
-        # 1. Проверяем что пользователь существует
         if not db.user_exists(uin):
             print(f"[AUTH] User not found: {uin}")
-            await self.send_auth_error(conn, AuthError.INVALID_UIN, uin)
+            await self._send_auth_error(conn, AuthError.INVALID_UIN, uin)
             return
         
-        # 2. Проверяем пароль
         user = db.authenticate(uin, password)
         if not user:
-            print(f"[AUTH] Invalid password for: {uin}")
-            await self.send_auth_error(conn, AuthError.INVALID_PASSWORD, uin)
+            print(f"[AUTH] Invalid password: {uin}")
+            await self._send_auth_error(conn, AuthError.INVALID_PASSWORD, uin)
             return
         
-        # ========== УСПЕШНАЯ АВТОРИЗАЦИЯ ==========
-        
-        print(f"[AUTH] Authentication successful: {uin} ({user.nickname})")
+        print(f"[AUTH] Success: {uin}")
         
         conn.uin = uin
         conn.user = user
         
-        # Генерируем cookie для BOS
         cookie = os.urandom(256)
         self.pending_cookies[cookie] = uin
         
-        # Формируем ответ
-        bos_address = f"{config.BOS_HOST}:{config.BOS_PORT}"
+        bos_addr = f"{config.BOS_HOST}:{config.BOS_PORT}"
         
-        response_data = b''
-        response_data += TLV.pack_string(0x01, uin)
-        response_data += TLV.pack_string(0x05, bos_address)
-        response_data += TLV.pack(0x06, cookie)
-        response_data += TLV.pack_string(0x11, user.email)
+        resp = TLV.pack_string(0x01, uin)
+        resp += TLV.pack_string(0x05, bos_addr)
+        resp += TLV.pack(0x06, cookie)
+        resp += TLV.pack_string(0x11, user.email)
         
-        print(f"[AUTH] Redirecting to BOS: {bos_address}")
-        
-        await conn.send_flap(FLAPChannel.DISCONNECT, response_data)
+        await conn.send_flap(FLAPChannel.DISCONNECT, resp)
     
-    async def send_auth_error(self, conn: ClientConnection, error_code: int, uin: str):
-        """Отправляет ошибку авторизации"""
-        
-        error_messages = {
-            AuthError.INVALID_UIN: "Invalid UIN",
-            AuthError.INVALID_PASSWORD: "Incorrect password",
-            AuthError.NOT_REGISTERED: "UIN not registered",
-            AuthError.SUSPENDED: "Account suspended",
-            AuthError.RATE_LIMITED: "Too many login attempts",
-        }
-        
-        error_url = error_messages.get(error_code, "Authentication failed")
-        
-        response_data = b''
-        response_data += TLV.pack_string(0x01, uin)
-        response_data += TLV.pack(0x04, error_url.encode('utf-8'))  # Error URL/message
-        response_data += TLV.pack(0x08, struct.pack('>H', error_code))  # Error code
-        
-        print(f"[AUTH] Sending error: {error_code} - {error_url}")
-        
-        await conn.send_flap(FLAPChannel.DISCONNECT, response_data)
+    async def _send_auth_error(self, conn: ClientConnection, code: int, uin: str):
+        resp = TLV.pack_string(0x01, uin)
+        resp += TLV.pack(0x04, b"Authentication failed")
+        resp += TLV.pack(0x08, struct.pack('>H', code))
+        await conn.send_flap(FLAPChannel.DISCONNECT, resp)
     
-    # ==================== BOS ====================
-    
-    async def send_host_online(self, conn: ClientConnection):
-        families = [
-            0x0001, 0x0002, 0x0003, 0x0004, 
-            0x0009, 0x0013, 0x0015,
-        ]
+    async def _send_host_online(self, conn: ClientConnection):
+        families = [0x0001, 0x0002, 0x0003, 0x0004, 0x0009, 0x0013, 0x0015]
         data = b''.join(struct.pack('>H', f) for f in families)
         await conn.send_snac(SNAC(SNACFamily.GENERIC, 0x03, 0, 0, data))
     
-    # ==================== Статусы ====================
+    async def set_user_status(self, conn: ClientConnection, status_flags: int, status: int,
+                               x_status_data: bytes = b'', capabilities: bytes = b'',
+                               dc_info: bytes = b''):
+        """Устанавливает статус пользователя и рассылает обновление"""
+        conn.status_flags = status_flags
+        conn.status = status
+        
+        if x_status_data:
+            conn.x_status_data = x_status_data
+        if capabilities:
+            conn.capabilities = capabilities
+        if dc_info:
+            conn.dc_info = dc_info
+        
+        status_name = ICQStatus.NAMES.get(status, f"0x{status:04x}")
+        print(f"[STATUS] {conn.uin} -> {status_name}")
+        if x_status_data:
+            print(f"[STATUS] X-Status data: {x_status_data.hex()}")
+        
+        await self.broadcast_status(conn.uin, offline=False)
     
     async def send_contact_statuses(self, conn: ClientConnection):
-        if not conn.user:
+        if not conn.uin:
             return
         
         await asyncio.sleep(0.3)
         
-        contacts = db.get_contacts(conn.uin) # type: ignore
-        print(f"[STATUS] Sending contact statuses to {conn.uin} ({len(contacts)} contacts)")
+        contacts = db.get_contacts(conn.uin)
+        print(f"[STATUS] Sending to {conn.uin}: {contacts}")
         
-        for contact_uin in contacts:
-            if contact_uin in self.bos_connections:
-                await self._send_buddy_online(conn, contact_uin)
+        for contact in contacts:
+            if contact in self.bos_connections:
+                await self._send_buddy_status(conn, contact, online=True)
     
-    async def _send_buddy_online(self, conn: ClientConnection, buddy_uin: str):
-        uin_bytes = buddy_uin.encode('utf-8')
-        
-        data = struct.pack('B', len(uin_bytes)) + uin_bytes
-        data += struct.pack('>H', 0)
-        data += struct.pack('>H', 4)
-        
-        data += TLV.pack_uint16(0x01, 0x0010)
-        data += TLV.pack_uint32(0x03, int(time.time()))
-        data += TLV.pack_uint16(0x06, 0x0000)
-        data += TLV.pack_uint16(0x0F, 0)
-        
-        await conn.send_snac(SNAC(SNACFamily.BUDDY, 0x0B, 0, 0, data))
-        print(f"[STATUS] Sent {buddy_uin} ONLINE to {conn.uin}")
+    async def _send_buddy_status(self, conn: ClientConnection, buddy_uin: str, online: bool):
+        """Отправляет статус контакта с X-Status"""
+        try:
+            buddy_conn = self.bos_connections.get(buddy_uin) if online else None
+            
+            uin_bytes = buddy_uin.encode('utf-8')
+            data = struct.pack('B', len(uin_bytes)) + uin_bytes
+            data += struct.pack('>H', 0)  # warning level
+            
+            if online and buddy_conn:
+                tlvs = b''
+                tlv_count = 0
+                
+                # TLV 0x0001 - User class
+                tlvs += TLV.pack_uint16(0x0001, 0x0010)
+                tlv_count += 1
+                
+                # TLV 0x0003 - Signon time
+                tlvs += TLV.pack_uint32(0x0003, int(time.time()))
+                tlv_count += 1
+                
+                # TLV 0x0004 - Idle time
+                tlvs += TLV.pack_uint16(0x0004, 0)
+                tlv_count += 1
+                
+                # TLV 0x0006 - ICQ Status (flags + status)
+                status_data = struct.pack('>HH', buddy_conn.status_flags, buddy_conn.status)
+                tlvs += TLV.pack(0x0006, status_data)
+                tlv_count += 1
+                
+                # TLV 0x000C - DC Info
+                if buddy_conn.dc_info:
+                    tlvs += TLV.pack(0x000C, buddy_conn.dc_info)
+                else:
+                    dc = struct.pack('>IIHIHHHHHHI', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                    tlvs += TLV.pack(0x000C, dc)
+                tlv_count += 1
+                
+                # TLV 0x000D - Capabilities (важно для X-Status!)
+                if buddy_conn.capabilities:
+                    tlvs += TLV.pack(0x000D, buddy_conn.capabilities)
+                    tlv_count += 1
+                else:
+                    # Базовые capabilities
+                    caps = bytes.fromhex('094613494C7F11D18222444553540000')
+                    tlvs += TLV.pack(0x000D, caps)
+                    tlv_count += 1
+                
+                # TLV 0x000F - Online time
+                tlvs += TLV.pack_uint32(0x000F, 0)
+                tlv_count += 1
+                
+                # TLV 0x001D - X-Status (Extended Status) - КЛЮЧЕВОЙ ДЛЯ QIP СТАТУСОВ!
+                if buddy_conn.x_status_data:
+                    tlvs += TLV.pack(0x001D, buddy_conn.x_status_data)
+                    tlv_count += 1
+                
+                data += struct.pack('>H', tlv_count)
+                data += tlvs
+                
+                await conn.send_snac(SNAC(SNACFamily.BUDDY, 0x0B, 0, 0, data))
+                
+                status_name = ICQStatus.NAMES.get(buddy_conn.status, "Unknown")
+                print(f"[STATUS] >> {buddy_uin} ({status_name}) -> {conn.uin}")
+            else:
+                data += struct.pack('>H', 0)
+                await conn.send_snac(SNAC(SNACFamily.BUDDY, 0x0C, 0, 0, data))
+                print(f"[STATUS] >> {buddy_uin} OFFLINE -> {conn.uin}")
+                
+        except Exception as e:
+            print(f"[STATUS] Error: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def broadcast_status(self, uin: str, offline: bool = False):
         contacts = db.get_contacts(uin)
-        if not contacts:
-            return
         
         status_str = "OFFLINE" if offline else "ONLINE"
-        print(f"[STATUS] Broadcasting: {uin} is now {status_str}")
+        print(f"[STATUS] Broadcasting {uin} {status_str} to {len(contacts)} contacts")
         
-        for contact_uin in contacts:
-            contact_conn = self.bos_connections.get(contact_uin)
-            if contact_conn:
-                uin_bytes = uin.encode('utf-8')
-                data = struct.pack('B', len(uin_bytes)) + uin_bytes
-                data += struct.pack('>H', 0)
-                
-                if not offline:
-                    data += struct.pack('>H', 4)
-                    data += TLV.pack_uint16(0x01, 0x0010)
-                    data += TLV.pack_uint32(0x03, int(time.time()))
-                    data += TLV.pack_uint16(0x06, 0x0000)
-                    data += TLV.pack_uint16(0x0F, 0)
-                    await contact_conn.send_snac(SNAC(SNACFamily.BUDDY, 0x0B, 0, 0, data))
-                else:
-                    data += struct.pack('>H', 0)
-                    await contact_conn.send_snac(SNAC(SNACFamily.BUDDY, 0x0C, 0, 0, data))
-    
-    # ==================== Сообщения ====================
+        for contact in contacts:
+            conn = self.bos_connections.get(contact)
+            if conn:
+                await self._send_buddy_status(conn, uin, online=not offline)
     
     def deliver_message(self, from_uin: str, to_uin: str, message: str,
                        cookie: bytes, original_tlv02: bytes = b''):
@@ -366,102 +376,72 @@ class ICQServer:
                 self._send_message(recipient, from_uin, message, cookie, original_tlv02)
             )
         else:
-            # Сохраняем offline сообщение
-            print(f"[MSG] {to_uin} offline, saving message")
+            print(f"[MSG] {to_uin} offline, saving")
             db.save_offline_message(from_uin, to_uin, message)
     
-    async def _send_message(self, recipient: ClientConnection, from_uin: str,
-                           message: str, cookie: bytes, original_tlv02: bytes):
+    async def _send_message(self, recipient, from_uin: str, message: str,
+                           cookie: bytes, original_tlv02: bytes):
+        uin_bytes = from_uin.encode('utf-8')
         
         data = cookie
         data += struct.pack('>H', 1)
-        
-        uin_bytes = from_uin.encode('utf-8')
         data += struct.pack('B', len(uin_bytes)) + uin_bytes
-        
-        data += struct.pack('>H', 0)
-        data += struct.pack('>H', 4)
+        data += struct.pack('>HH', 0, 4)
         
         data += TLV.pack_uint16(0x01, 0x0010)
         data += TLV.pack_uint32(0x03, int(time.time()))
-        data += TLV.pack_uint16(0x06, 0x0000)
+        data += TLV.pack_uint16(0x06, 0)
         data += TLV.pack_uint16(0x0F, 0)
         
         if original_tlv02:
             data += TLV.pack(0x02, original_tlv02)
         else:
             msg_bytes = message.encode('utf-16be')
-            
-            fragment = struct.pack('>BBH', 0x05, 0x01, 0x0004)
-            fragment += struct.pack('>HH', 0x0101, 0x0001)
-            
-            fragment += struct.pack('>BBH', 0x01, 0x01, len(msg_bytes) + 4)
-            fragment += struct.pack('>HH', 0x0002, 0xFFFF)
-            fragment += msg_bytes
-            
-            data += TLV.pack(0x02, fragment)
+            frag = struct.pack('>BBH', 0x05, 0x01, 4) + struct.pack('>HH', 0x0101, 0x0001)
+            frag += struct.pack('>BBH', 0x01, 0x01, len(msg_bytes) + 4)
+            frag += struct.pack('>HH', 0x0002, 0xFFFF) + msg_bytes
+            data += TLV.pack(0x02, frag)
         
         await recipient.send_snac(SNAC(SNACFamily.ICBM, 0x07, 0, 0, data))
         print(f"[MSG] Delivered: {from_uin} -> {recipient.uin}")
 
 
-# ==================== Main ====================
-
 async def main():
     server = ICQServer()
-    
-    # Статистика БД
     stats = db.get_stats()
     
-    print("\n" + "=" * 60)
-    print("🔷 ICQ/OSCAR Server")
-    print("=" * 60)
-    print(f"  Auth server: {config.HOST}:{config.AUTH_PORT}")
-    print(f"  BOS server:  {config.HOST}:{config.BOS_PORT}")
-    print(f"  BOS address: {config.BOS_HOST}:{config.BOS_PORT}")
-    print("-" * 60)
-    print(f"  📊 Database: {db.db_path}")
-    print(f"     Users: {stats['users']}")
-    print(f"     Contacts: {stats['contacts']}")
-    print(f"     Pending messages: {stats['pending_offline_messages']}")
-    print("=" * 60)
+    print("\n" + "=" * 50)
+    print("ICQ/OSCAR Server")
+    print("=" * 50)
+    print(f"  Auth: {config.HOST}:{config.AUTH_PORT}")
+    print(f"  BOS:  {config.HOST}:{config.BOS_PORT}")
+    print(f"  Users: {stats['users']}")
+    print("=" * 50)
     
     if stats['users'] == 0:
-        print("\n⚠️  No users in database!")
-        print("   Run: python database.py init")
-        print("   Or:  python database.py add <uin> <password> [nickname]")
-        print()
+        print("\nNo users! Run: python database.py init\n")
     
-    auth_server = await asyncio.start_server(
-        server.handle_auth_client,
-        config.HOST,
-        config.AUTH_PORT
+    auth = await asyncio.start_server(
+        server.handle_auth_client, config.HOST, config.AUTH_PORT
     )
-    print(f"[*] 🚀 Auth server started on {config.HOST}:{config.AUTH_PORT}")
-    
-    bos_server = await asyncio.start_server(
-        server.handle_bos_client,
-        config.HOST,
-        config.BOS_PORT
+    bos = await asyncio.start_server(
+        server.handle_bos_client, config.HOST, config.BOS_PORT
     )
-    print(f"[*] 🚀 BOS server started on {config.HOST}:{config.BOS_PORT}")
     
-    print(f"\n[*] 📝 Packet log: {packet_logger.log_file}")
-    print(f"[*] Press Ctrl+C to stop\n")
+    print(f"[*] Server running...\n")
     
     try:
-        async with auth_server, bos_server:
+        async with auth, bos:
             await asyncio.gather(
-                auth_server.serve_forever(),
-                bos_server.serve_forever()
+                auth.serve_forever(),
+                bos.serve_forever()
             )
     except KeyboardInterrupt:
         print("\n[*] Shutting down...")
-        packet_logger.print_stats()
 
 
 if __name__ == '__main__':
     try:
-        asyncio.run(main())
+        asyncio.run(main()) 
     except KeyboardInterrupt:
-        pass
+        print("\n[*] Stopped")

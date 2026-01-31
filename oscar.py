@@ -1,26 +1,30 @@
 import struct
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict
 from enum import IntEnum
+
 
 class FLAPChannel(IntEnum):
     NEW_CONNECTION = 0x01
     SNAC_DATA = 0x02
     ERROR = 0x03
     DISCONNECT = 0x04
+    KEEPALIVE = 0x05
+
 
 class SNACFamily(IntEnum):
     GENERIC = 0x0001
     LOCATION = 0x0002
     BUDDY = 0x0003
-    ICBM = 0x0004          # Сообщения
+    ICBM = 0x0004
     PRIVACY = 0x0009
-    SSI = 0x0013           # Контакт-лист
-    AUTH = 0x0017          # Авторизация
+    SSI = 0x0013
+    ICQ_EXT = 0x0015
+    AUTH = 0x0017
+
 
 @dataclass
 class FLAP:
-    """Frame Layer Protocol - транспортный уровень"""
     channel: int
     sequence: int
     data: bytes
@@ -34,35 +38,34 @@ class FLAP:
             return None
         if data[0] != cls.MARKER:
             return None
-            
+        
         channel, sequence, length = struct.unpack('>BHH', data[1:6])
         
         if len(data) < cls.HEADER_SIZE + length:
             return None
-            
+        
         payload = data[6:6+length]
         return cls(channel, sequence, payload)
     
     def pack(self) -> bytes:
-        header = struct.pack('>BBHH', 
-            self.MARKER, 
-            self.channel, 
-            self.sequence, 
+        header = struct.pack('>BBHH',
+            self.MARKER,
+            self.channel,
+            self.sequence,
             len(self.data)
         )
         return header + self.data
     
     @classmethod
     def total_size(cls, data: bytes) -> int:
-        """Возвращает полный размер пакета или 0 если недостаточно данных"""
         if len(data) < cls.HEADER_SIZE:
             return 0
         length = struct.unpack('>H', data[4:6])[0]
         return cls.HEADER_SIZE + length
 
+
 @dataclass
 class SNAC:
-    """Simple Network Atomic Communication"""
     family: int
     subtype: int
     flags: int
@@ -87,9 +90,8 @@ class SNAC:
         )
         return header + self.data
 
+
 class TLV:
-    """Type-Length-Value структура"""
-    
     @staticmethod
     def pack(tlv_type: int, data: bytes) -> bytes:
         return struct.pack('>HH', tlv_type, len(data)) + data
@@ -108,8 +110,7 @@ class TLV:
         return TLV.pack(tlv_type, struct.pack('>I', value))
     
     @staticmethod
-    def parse_all(data: bytes) -> dict:
-        """Парсит все TLV из данных"""
+    def parse_all(data: bytes) -> Dict[int, bytes]:
         result = {}
         offset = 0
         while offset + 4 <= len(data):
