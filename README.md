@@ -18,6 +18,9 @@ A lightweight ICQ server implementation using the OSCAR protocol, designed to wo
 - **SQLite Database** - Persistent storage for users and contacts
 - **Packet Logging** - Debug mode with full packet capture
 
+## Doesn't work right
+- **Search by UIN**
+
 ## Requirements
 
 - Python 3.8 or higher
