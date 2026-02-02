@@ -1,4 +1,4 @@
-# ICQ/OSCAR Server
+# oscar-icq-server
 
 A lightweight ICQ server implementation using the OSCAR protocol, designed to work with classic ICQ clients like QIP 2005.
 
