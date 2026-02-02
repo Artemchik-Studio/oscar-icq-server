@@ -1,6 +1,5 @@
-HOST = '192.168.0.16'
-AUTH_PORT = 5190      # Порт авторизации (стандартный ICQ)
-BOS_PORT = 5191       # Порт основного сервера
+HOST = 'CHANGEME'
+AUTH_PORT = 5190      # AUTH PORT 
+BOS_PORT = 5191       # MAIN SERVER PORT
 
-# Для тестов - локальный IP, который будет отдаваться клиенту
-BOS_HOST = '192.168.0.16'
+BOS_HOST = 'CHANGEME'
