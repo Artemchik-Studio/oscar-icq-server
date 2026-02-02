@@ -11,7 +11,7 @@ A lightweight ICQ server implementation using the OSCAR protocol, designed to wo
 - **Authentication** - Secure login with password verification
 - **Messaging** - Real-time message delivery between users
 - **Contact List** - Server-side contact list storage (SSI)
-- **Status Support** - Online, Away, DND, Free for Chat, Invisible, and more
+- **Extended and X-Status Support** - Online, Away, DND, Free for Chat, Invisible, and more
 - **Typing Notifications** - Real-time typing indicators
 - **User Search** - Search users by UIN, nickname, or email
 - **Offline Messages** - Store messages for offline users
