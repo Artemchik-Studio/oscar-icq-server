@@ -13,7 +13,6 @@ A lightweight ICQ server implementation using the OSCAR protocol, designed to wo
 - **Contact List** - Server-side contact list storage (SSI)
 - **Extended and X-Status Support** - Online, Away, DND, Free for Chat, Invisible, and more
 - **Typing Notifications** - Real-time typing indicators
-- **User Search** - Search users by UIN, nickname, or email
 - **Offline Messages** - Store messages for offline users
 - **SQLite Database** - Persistent storage for users and contacts
 - **Packet Logging** - Debug mode with full packet capture
