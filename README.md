@@ -6,7 +6,7 @@ A lightweight ICQ server implementation using the OSCAR protocol, designed to wo
 ![License](https://img.shields.io/badge/License-GNU_GPL_v3.0-blue)
 ![Protocol](https://img.shields.io/badge/Protocol-OSCAR-orange.svg)
 
-## Contibutions are welcome! and don't forget to give me a star :)
+## Contributions are welcome! and don't forget to give me a star :)
 
 ## Features
 
