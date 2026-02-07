@@ -60,8 +60,8 @@ BOS_PORT = 5191
 BOS_HOST = '127.0.0.1'  # Your server's public IP for network access
 ```
 
- Client Configuration
-```QIP 2005
+ Client Configuration(QIP 2005)
+```
 
     Go to Server/proxy on the login screen
     Set Server: 127.0.0.1 (or your server IP)
